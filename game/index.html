@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Ridgeline Courier — Alpine Air Mail</title>
+<style>
+  :root {
+    --amber: #ffb62e;
+    --amber-dim: rgba(255, 182, 46, 0.85);
+    --panel: rgba(8, 18, 30, 0.62);
+    --panel-edge: rgba(255, 255, 255, 0.16);
+    --ink: #eef4fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1622; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .hidden { display: none !important; }
+  /* Read aloud, never shown: the status line screen readers announce. */
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* ---- HUD ---- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+  .panel { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 10px; backdrop-filter: blur(3px); }
+  .label { font-size: 10px; letter-spacing: 0.18em; color: #9fb6c9; text-transform: uppercase; }
+  .value { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; text-shadow: 0 0 12px rgba(255, 182, 46, 0.55); }
+  .value small { font-size: 13px; color: var(--amber); }
+
+  #hud-left { position: absolute; top: 14px; left: 14px; display: flex; gap: 10px; }
+  #hud-left .panel { padding: 8px 14px 9px; min-width: 118px; }
+  #hud-left .value { color: #fff; }
+  #hud-left .lit { color: var(--amber); }
+
+  #hud-compass { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 340px; padding: 6px 0 8px; text-align: center; }
+  #hud-tape { position: relative; height: 20px; overflow: hidden; font-size: 12px; font-weight: 600; color: #cfe0ee; }
+  .tape-tick { position: absolute; top: 2px; transform: translateX(-50%); }
+  #hud-hdg { font-size: 22px; font-weight: 700; color: #fff; text-shadow: 0 0 12px rgba(255, 182, 46, 0.55); }
+  #hud-compass .needle { position: absolute; left: 50%; top: 0; transform: translateX(-50%); color: var(--amber); font-size: 13px; }
+
+  #hud-right { position: absolute; top: 14px; right: 14px; width: 210px; display: flex; flex-direction: column; gap: 8px; }
+  #hud-right .panel { padding: 8px 12px; }
+  #hud-right .row { display: flex; justify-content: space-between; align-items: baseline; }
+  #hud-score { font-size: 22px; font-weight: 800; color: #fff; }
+  #hud-clock { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; color: #fff; }
+  #hud-clock.low { color: #ff5a4e; text-shadow: 0 0 10px rgba(255, 90, 78, 0.8); }
+  .bar { height: 9px; border-radius: 5px; background: rgba(255, 255, 255, 0.14); overflow: hidden; margin-top: 5px; }
+  .fill { height: 100%; border-radius: 5px; transition: width 0.15s linear; }
+  .fill.thr { background: linear-gradient(90deg, #2f9e5f, #7ee2a0); width: 0%; }
+  .fill.fuel { background: linear-gradient(90deg, #ffb62e, #ffd97a); width: 100%; }
+  .fill.fuel.low { background: linear-gradient(90deg, #ff5a4e, #ff9a8a); }
+  .fill.dmg { background: linear-gradient(90deg, #ff5a4e, #ff8a7a); width: 0%; }
+
+  #hud-attitude { position: absolute; left: 14px; bottom: 14px; width: 124px; height: 124px; border-radius: 50%; border: 2px solid var(--panel-edge); background: rgba(8, 18, 30, 0.55); }
+
+  #hud-mission { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 9px 18px; font-size: 15px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
+  #hud-mission .ring-arrow { color: var(--amber); margin-left: 8px; font-size: 17px; }
+  #hud-mission .ring-arrow.on { animation: pulse 0.9s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  #hud-warn { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); padding: 7px 16px; font-size: 15px; font-weight: 800; letter-spacing: 0.12em; color: #ff5a4e; background: rgba(60, 8, 8, 0.66); border: 1px solid rgba(255, 90, 78, 0.6); border-radius: 8px; opacity: 0; transition: opacity 0.2s; }
+  #hud-warn.show { opacity: 1; animation: pulse 0.7s ease-in-out infinite; }
+
+  #hud-toast { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%) scale(0.96); padding: 12px 26px; font-size: 21px; font-weight: 800; letter-spacing: 0.03em; color: #fff; background: rgba(8, 18, 30, 0.72); border: 1px solid var(--amber-dim); border-radius: 12px; opacity: 0; transition: opacity 0.25s, transform 0.25s; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); white-space: nowrap; }
+  #hud-toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+  #hud-cross { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 26px; height: 26px; opacity: 0.75; }
+  #hud-cross::before, #hud-cross::after { content: ""; position: absolute; background: rgba(255, 255, 255, 0.9); }
+  #hud-cross::before { left: 12px; top: 0; width: 2px; height: 26px; }
+  #hud-cross::after { top: 12px; left: 0; width: 26px; height: 2px; }
+
+  #hud-help { position: absolute; right: 14px; bottom: 14px; padding: 8px 12px; font-size: 11.5px; line-height: 1.55; color: #b9cbd9; text-align: right; }
+  #hud-help b { color: #fff; }
+
+  /* ---- Full-screen overlays ---- */
+  .screen { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: linear-gradient(180deg, rgba(6, 14, 24, 0.42) 0%, rgba(6, 14, 24, 0.12) 45%, rgba(6, 14, 24, 0.62) 100%); }
+  /* The title keeps its text in the left half so the parked Kestrel shows on the right. */
+  #screen-title { align-items: flex-start; text-align: left; padding-left: 7vw; }
+  .kicker { font-size: 13px; letter-spacing: 0.42em; color: var(--amber); font-weight: 700; text-transform: uppercase; }
+  h1 { margin: 8px 0 4px; font-size: 56px; line-height: 0.95; font-weight: 900; letter-spacing: 0.01em; color: #fff; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.55); }
+  h1 .accent { color: var(--amber); }
+  .subtitle { margin: 8px 0 0; font-size: 19px; color: #dce8f2; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7); max-width: 640px; }
+  .brief { margin: 16px 0 0; padding: 13px 18px; font-size: 15px; line-height: 1.6; color: #e8f0f7; background: rgba(8, 18, 30, 0.66); border: 1px solid var(--panel-edge); border-radius: 12px; max-width: 560px; text-align: left; }
+  .brief b { color: var(--amber); }
+  .btn { pointer-events: auto; cursor: pointer; margin-top: 26px; padding: 15px 44px; font-size: 19px; font-weight: 800; letter-spacing: 0.06em; color: #1a1206; background: linear-gradient(180deg, #ffd97a, #ffb62e); border: none; border-radius: 12px; box-shadow: 0 6px 24px rgba(255, 182, 46, 0.45); }
+  .btn:hover { filter: brightness(1.07); }
+  .btn.ghost { background: transparent; color: #dce8f2; border: 1px solid var(--panel-edge); box-shadow: none; font-size: 15px; padding: 11px 26px; }
+  .keys { margin-top: 20px; font-size: 13px; color: #b9cbd9; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); }
+  .keys b { color: #fff; }
+  h2 { margin: 8px 0 4px; font-size: 46px; font-weight: 900; color: #fff; text-shadow: 0 4px 26px rgba(0, 0, 0, 0.6); }
+  #end-body { font-size: 17.5px; color: #dce8f2; max-width: 560px; line-height: 1.6; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7); }
+  #end-best { margin-top: 14px; font-size: 15px; font-weight: 700; color: var(--amber); letter-spacing: 0.04em; }
+  .btn-row { display: flex; gap: 14px; }
+  @media (max-width: 900px) {
+    h1 { font-size: 42px; }
+    #hud-compass { width: 250px; }
+    .value { font-size: 20px; }
+    #hud-help { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Ridgeline Courier: fly the Kestrel through the rings over the valley, then land on the runway"></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <div id="hud-left">
+    <div class="panel"><div class="label">Altitude</div><div class="value lit" id="hud-alt">0 FT</div><div class="label" id="hud-vsi" style="letter-spacing:0.02em">+0 FPM</div></div>
+    <div class="panel"><div class="label">Airspeed</div><div class="value lit" id="hud-spd">0 KT</div><div class="label">Kestrel · Bush Plane</div></div>
+  </div>
+  <div id="hud-compass" class="panel">
+    <div class="needle">▼</div>
+    <div id="hud-tape"></div>
+    <div id="hud-hdg">000° N</div>
+  </div>
+  <div id="hud-right">
+    <div class="panel"><div class="row"><span class="label">Score</span><span id="hud-score">0 PTS</span></div><div class="row" style="margin-top:4px"><span class="label">Time</span><span id="hud-clock" class="clock">4:00</span></div></div>
+    <div class="panel"><div class="row"><span class="label">Throttle</span></div><div class="bar"><div class="fill thr" id="hud-thr-fill"></div></div><div class="row" style="margin-top:7px"><span class="label">Fuel</span></div><div class="bar"><div class="fill fuel" id="hud-fuel-fill"></div></div><div class="row" style="margin-top:7px"><span class="label">Damage</span></div><div class="bar"><div class="fill dmg" id="hud-dmg-fill"></div></div></div>
+  </div>
+  <canvas id="hud-attitude" width="124" height="124" aria-label="Artificial horizon"></canvas>
+  <div id="hud-mission" class="panel">RING 1/8 · Millbrook Rise · 0 m<span class="ring-arrow" id="hud-ring-arrow">▲</span></div>
+  <div id="hud-warn"></div>
+  <div id="hud-toast"></div>
+  <div id="hud-cross"></div>
+  <div id="hud-help" class="panel"><b>↑ ↓</b> pitch &nbsp; <b>← →</b> bank &amp; turn<br><b>Shift</b> throttle up &nbsp; <b>Ctrl</b> throttle down<br><b>Space</b> airbrake &nbsp; <b>P</b> pause &nbsp; <b>M</b> sound<br>or hold the mouse and drag to steer</div>
+</div>
+
+<div id="screen-title" class="screen">
+  <div class="kicker">Alpine Air Mail · Valley Run 01</div>
+  <h1>RIDGELINE<br><span class="accent">COURIER</span></h1>
+  <p class="subtitle">Fly the Kestrel through every glowing ring over the valley — then bring her home to the runway before the fuel or the clock runs out.</p>
+  <div class="brief">✈ <b>Fly the rings</b> in order — each one pays <b>100 points</b>, <b>+8 seconds</b> and a splash of fuel.<br>⛽ <b>Watch the tanks:</b> full throttle drinks fuel. Land mid-run to refuel and repair.<br>🛬 <b>Finish on the runway:</b> gentle, slow and centred earns the landing bonus. Hills and lake water do not forgive.</div>
+  <button class="btn" id="btn-start">START FLYING</button>
+  <div class="keys"><b>↑ ↓</b> pitch &nbsp;·&nbsp; <b>← →</b> bank &amp; turn &nbsp;·&nbsp; <b>Shift / Ctrl</b> throttle &nbsp;·&nbsp; <b>Space</b> airbrake &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>M</b> sound</div>
+</div>
+
+<div id="screen-pause" class="screen hidden">
+  <div class="kicker">Paused</div>
+  <h2>Holding Pattern</h2>
+  <p class="subtitle">The Kestrel is circling, waiting for you.</p>
+  <button class="btn" id="btn-resume">RESUME FLIGHT</button>
+</div>
+
+<div id="screen-end" class="screen hidden">
+  <div class="kicker" id="end-kicker">Flight Report</div>
+  <h2 id="end-title">Run complete!</h2>
+  <p id="end-body"></p>
+  <div id="end-best"></div>
+  <div class="btn-row">
+    <button class="btn" id="btn-again">FLY AGAIN</button>
+    <button class="btn ghost" id="btn-title">TITLE SCREEN</button>
+  </div>
+  <div class="keys">Press <b>Enter</b> to fly again</div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
